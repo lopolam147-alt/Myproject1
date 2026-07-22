@@ -1,0 +1,26 @@
+# 環境變數（內含真實密碼與 API 金鑰，絕對不能上傳！）
+.env
+
+# Python 快取
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虛擬環境
+venv/
+env/
+.venv/
+
+# IDE 設定
+.vscode/
+.idea/
+
+# Docker 資料（本機資料夾）
+postgres_data/
+
+# 測試快取與截圖
+.pytest_cache/
+test_result.png
+playwright-report/
+test-results/

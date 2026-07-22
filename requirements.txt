@@ -1,0 +1,17 @@
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+psycopg2-binary==2.9.12
+sqlalchemy==2.0.38
+python-dotenv==1.0.1
+requests>=2.32.5
+beautifulsoup4==4.12.3
+lxml==6.1.1
+sentence-transformers==2.3.1
+duckduckgo-search==6.3.4
+httpx>=0.28.1  # for async support if needed
+python-multipart==0.0.9
+aiofiles==23.2.1
+playwright>=1.45.0
+pytest==8.0.0
+pytest-asyncio==0.23.5
+greenlet>=3.0.3 
