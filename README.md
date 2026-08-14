@@ -99,15 +99,15 @@ python -m spacy download en_core_web_sm
 Create/Modify a `.env` file in the project root (an example is shown below (**Never commit real API keys.**)). 
 ```env
 # DeepSeek (falls back to generic match text)
-DEEPSEEK_API_KEY= # change_your_deepseek_api_key 
+DEEPSEEK_API_KEY=your_deepseek_api_key # change this
 DEEPSEEK_MODEL=deepseek-chat
 
 # Tavily (falls back to DuckDuckGo + scraping)
-TAVILY_API_KEY= # change_tavily_api_key 
+TAVILY_API_KEY=your_tavily_api_key # change this
 
 # PostgreSQL
-POSTGRES_USER= # change_your_username 
-POSTGRES_PASSWORD= # change_your_password
+POSTGRES_USER=your_username   # change this
+POSTGRES_PASSWORD=your_password   # change this
 POSTGRES_DB=postgres
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5433
@@ -126,13 +126,13 @@ services:
   postgres:
     image: postgres:latest
     environment:
-      POSTGRES_USER: # change_your_username 
-      POSTGRES_PASSWORD: # change_your_password
+      POSTGRES_USER: your_username # change this
+      POSTGRES_PASSWORD: your_password # change this
       POSTGRES_DB: postgres
     ports:
       - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresqldocker-compose down
+      - postgres_data:/var/lib/postgresql/data
 volumes:
   postgres_data:
 ```
