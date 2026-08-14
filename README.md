@@ -55,7 +55,7 @@ flowchart LR
 ## Prerequisites
 
 - Python 3.10+
-- Docker (for PostgreSQL)
+- Docker Desktop (for PostgreSQL) 
 - API keys (optional but recommended):
   - [Tavily](https://tavily.com/) — primary web search
   - [DeepSeek](https://platform.deepseek.com/) — match-reason generation
@@ -90,25 +90,24 @@ pip install tavily-python spacy
 python -m spacy download en_core_web_sm
 ```
 
-> **Note:** `tavily-python` and `spacy` are used by the project but are not yet listed in `requirements.txt`. Consider adding them.
+> **Note:** `tavily-python` and `spacy` are used by the project but are not yet listed in `requirements.txt`. Consider adding them. Sometimes some dependencies can't install successfully in requirements.txt, it's needed to install individually again, e.g. `pip install ddgs`
 
 
 
 ### 3. Configure environment variables
 
-Create a `.env` file in the project root (a template is shown below). **Never commit real API keys.**
-
+Create/Modify a `.env` file in the project root (an example is shown below (**Never commit real API keys.**)). 
 ```env
-# DeepSeek (optional — falls back to generic match text)
-DEEPSEEK_API_KEY=your_deepseek_api_key
+# DeepSeek (falls back to generic match text)
+DEEPSEEK_API_KEY=your_deepseek_api_key (**Need to corrected**)
 DEEPSEEK_MODEL=deepseek-chat
 
-# Tavily (optional — falls back to DuckDuckGo + scraping)
-TAVILY_API_KEY=your_tavily_api_key
+# Tavily (falls back to DuckDuckGo + scraping)
+TAVILY_API_KEY=your_tavily_api_key (**Need to corrected**)
 
 # PostgreSQL
-POSTGRES_USER=lpl
-POSTGRES_PASSWORD=your_password
+POSTGRES_USER=lpl (**Need to corrected**)
+POSTGRES_PASSWORD=your_password (**Need to corrected**)
 POSTGRES_DB=postgres
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5433
@@ -120,7 +119,23 @@ USER_AGENT=MyElectronicsBot/1.0 (+https://example.com/bot)
 TARGET_SITES=
 ```
 
-
+Modify `docker-compose.yml` file in the project root (an example is shown below).
+```
+version: '3.8'
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: lpl (**Need to corrected**)
+      POSTGRES_PASSWORD: lpl01470 (**Need to corrected**)
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresqldocker-compose down
+volumes:
+  postgres_data:
+```
 
 ### 4. Start PostgreSQL
 
