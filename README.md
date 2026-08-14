@@ -96,7 +96,7 @@ python -m spacy download en_core_web_sm
 
 ### 3. Configure environment variables
 
-Create/Modify a `.env` file in the project root (an example is shown below (**Never commit real API keys.**)). 
+Create/Modify a `.env` file in the project root (an example is shown below).
 ```env
 # DeepSeek (falls back to generic match text)
 DEEPSEEK_API_KEY=your_deepseek_api_key # change this
