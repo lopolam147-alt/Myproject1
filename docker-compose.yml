@@ -3,8 +3,8 @@ services:
   postgres:
     image: postgres:latest
     environment:
-      POSTGRES_USER: # Set my name
-      POSTGRES_PASSWORD: # Set my password
+      POSTGRES_USER: lpl # Set my name
+      POSTGRES_PASSWORD: lpl01470 # Set my password
       POSTGRES_DB: postgres
     ports:
       - "5433:5432"

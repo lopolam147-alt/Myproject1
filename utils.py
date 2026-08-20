@@ -1,5 +1,6 @@
 import spacy
 import re
+from datetime import datetime
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -142,3 +143,46 @@ def normalize_synonyms(text: str) -> str:
     for pattern, replacement in replacements.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
+
+
+def build_query_from_input(data: dict) -> str:
+    """
+    將使用者輸入轉為搜尋字串。
+    注意：price 和 country 不會被放入搜尋字串（country 僅供未來貨幣轉換用）。
+    """
+    parts = []
+    
+    # 定義哪些欄位「真正」要用來搜尋
+    searchable_fields = ["device_type", "brands", "color", "version", "others"]
+    
+    for field in searchable_fields:
+        value = data.get(field)
+        if value is None:
+            continue
+        
+        # 安全處理數值（例如版本號若為數字）
+        if isinstance(value, (int, float)):
+            cleaned = str(value)
+        else:
+            cleaned = clean_text(str(value))
+        
+        # 特殊處理：如果版本為 "newest"，替換為當前年份
+        if field == "version" and cleaned == "newest":
+            cleaned = str(datetime.now().year)  # 例如 2026
+            print(f"🔄 將 'newest' 轉換為年份: {cleaned}")
+        
+        if cleaned:
+            # 對於顏色，如果為空或 "any"，則跳過
+            if field == "color" and cleaned in ("", "any", "blank"):
+                continue
+            # 保留欄位名稱前綴，讓 Tavily 更精準 (例如 brand:Apple)
+            parts.append(f"{field}:{cleaned}")
+
+    # 處理「Others」（額外關鍵字）——已經包含在上面了，但若單獨處理也可
+    # 目前 others 已在 searchable_fields 中，所以會以 "others:xxx" 加入
+
+    # 組合完整的查詢字串
+    full_query = " ".join(parts)
+    keywords = extract_keywords(full_query)
+    
+    return " ".join(keywords)

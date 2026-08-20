@@ -45,40 +45,34 @@ async def index():
                 <input type="text" name="device_type" placeholder="e.g. laptop..." required />
             </div>
 
-            <!-- 2. Country (Mandatory) -->
-            <div class="form-group">
-                <label>Country <span style="color:red;">*</span></label>
-                <input type="text" name="country" placeholder="e.g. China, US, UK, Germany..." required />
-            </div>
-
-            <!-- 3. Brands (Optional) -->
+            <!-- 2. Brands (Optional) -->
             <div class="form-group">
                 <label>Brands</label>
                 <input type="text" name="brands" placeholder="e.g. Apple, Samsung, ASUS..." />
             </div>
 
-            <!-- 4. Color (Optional) -->
+            <!-- 3. Color (Optional) -->
             <div class="form-group">
                 <label>Color</label>
                 <input type="text" name="color" placeholder="e.g. Sierra blue, Green..." />
             </div>
 
-            <!-- 5. Version (Optional) -->
+            <!-- 4. Version (Optional) -->
             <div class="form-group">
                 <label>Version</label>
                 <input type="text" name="version" placeholder="e.g. A54, S26, Z Fold7..." />
             </div>
 
-            <!-- 6. Price (Optional) -->
-            <div class="form-group">
-                <label>Price (max)</label>
-                <input type="number" step="any" name="price" placeholder="e.g. 1000 (in your selected currency)" />
-            </div>
-
-            <!-- 7. Others (Optional) -->
+            <!-- 5. Others (Optional) -->
             <div class="form-group">
                 <label>Others</label>
                 <input type="text" name="others" placeholder="e.g. waterproof, 4K, OLED..." />
+            
+            <div class="form-group">
+                <label>强制重新搜索（绕过缓存）</label>
+                <input type="checkbox" name="refresh" value="true" />
+            </div>
+
             </div>
 
             <button type="submit">Search</button>
@@ -151,9 +145,9 @@ async def index():
                         const result = await resp.json();
                         clearInterval(interval);
                         displayResults(result);
-                    } else if (attempts > 60) {   // Increased timeout to 60 seconds
+                    } else if (attempts > 60) {   
                         clearInterval(interval);
-                        progressMsg.textContent = 'Timeout – search took too long.';
+                        progressMsg.textContent = 'Timeout - search took too long.';
                     }
                 }, 1000);
             }
@@ -161,7 +155,22 @@ async def index():
             function displayResults(result) {
                 const recs = result.recommendations || [];
                 const message = result.message || '';
+                const userInput = result.user_input || {};
                 let html = `<p><strong>${message}</strong></p>`;
+
+                // 显示搜索条件（可选）
+                let criteria = [];
+                if (userInput.device_type) criteria.push(`Device: ${userInput.device_type}`);
+                if (userInput.brands) criteria.push(`Brand: ${userInput.brands}`);
+                if (userInput.version) criteria.push(`Version: ${userInput.version}`);
+                if (userInput.color) criteria.push(`Color: ${userInput.color}`);
+                if (userInput.others) criteria.push(`Others: ${userInput.others}`);
+                if (criteria.length > 0) {
+                    html += `<div style="margin-bottom:12px; color:#444; font-size:0.95em; background:#f5f5f5; padding:8px 12px; border-radius:4px;">
+                        <strong>🔍 Search Criteria:</strong> ${criteria.join(' | ')}
+                    </div>`;
+                }
+
                 if (recs.length === 0) {
                     html += '<p>No recommendations found.</p>';
                 } else {
@@ -171,18 +180,74 @@ async def index():
                         const cardStyle = isBlocked ? 'opacity: 0.7; background: #f9f9f9;' : '';
                         const linkStyle = isBlocked ? 'color: #999; cursor: not-allowed;' : '';
 
+                        // ---------- 1. 计算匹配关键词 ----------
+                        let matchedKeywords = [];
+                        const userFields = {
+                            brands: userInput.brands,
+                            version: userInput.version,
+                            device_type: userInput.device_type,
+                            color: userInput.color,
+                            others: userInput.others
+                        };
+                        const allText = (prod.title || '') + ' ' + (prod.evidence_sentence || '');
+                        const cleanText = allText.replace(/\\s+/, '').toLowerCase();
+
+                        for (const [field, value] of Object.entries(userFields)) {
+                            if (value && value.trim()) {
+                                const words = value.split(/\\s+/).filter(w => w.length > 1);
+                                for (const word of words) {
+                                    const cleanWord = word.replace(/\\s+/, '').toLowerCase();
+                                    if (cleanText.includes(cleanWord)) {
+                                        matchedKeywords.push(word);
+                                    }
+                                }
+                            }
+                        }
+                        matchedKeywords = [...new Set(matchedKeywords)].slice(0, 8);
+
+                        // ---------- 2. 生成各部件 HTML ----------
+                        // 相似度
+                        const simHtml = `<div style="font-size:0.95em; color:#28a745; font-weight:bold; margin:2px 0;">
+                            Similarity: ${(prod.similarity * 100).toFixed(2)}%
+                        </div>`;
+
+                        // 关键词（蓝色）
+                        const keywordHtml = matchedKeywords.length > 0 ? 
+                            `<div style="color:#007bff; font-size:0.9em; margin:2px 0;">🔑 Keywords: ${matchedKeywords.join(' ')}</div>` : 
+                            `<div style="color:#999; font-size:0.85em; margin:2px 0;">🔑 Keywords: (none matched)</div>`;
+
+                        // AI证据句（清晰、干净）
+                        const evidenceHtml = prod.evidence_sentence ? 
+                            `<div style="color:#555; font-size:0.95em; margin:4px 0;">💡 ${prod.evidence_sentence}</div>` : 
+                            `<div style="color:#999; font-size:0.9em; margin:4px 0;">💡 No description available.</div>`;
+                        
+                        const categoryLabels = {
+                            'ecommerce': '🛒 E-commerce',
+                            'homepage': '🏠 E-commerce Homepage',
+                            'landing_page': '📋 Listing Page', 
+                            'official_spec': '📋 Official Specs',
+                            'resale': '🔄 Resale',
+                            'review': '📝 Review',
+                            'forum': '💬 Forum',
+                            'news': '📰 News',
+                            'unknown': '🔗 Web'
+                        };
+                        const categoryHtml = prod.category ? 
+                            `<div style="color:#888; font-size:0.8em; margin:2px 0;">${categoryLabels[prod.category] || prod.category}</div>` : '';
+                        // ---------- 3. 构建卡片（按新结构） ----------
                         html += `
                             <div class="product" style="${cardStyle}">
-                                <div class="title">${idx+1}. ${prod.title}</div>
-                                <div class="description">${prod.description}</div>
-                                ${prod.price ? `<div class="price">Price: ${prod.price} ${prod.currency || 'USD'}</div>` : ''}
-                                <div class="reason">${prod.match_reason || ''}</div>
-                                <div>
+                                <div class="title" style="font-size:1.1em; font-weight:bold;">${idx+1}. ${prod.title}</div>
+                                ${simHtml}
+                                ${keywordHtml}
+                                ${evidenceHtml}
+                                ${categoryHtml}
+                                <div style="margin-top:6px;">
                                     <a href="${prod.url}" target="_blank" style="${linkStyle}">View product</a>
-                                    ${isBlocked ? `<span style="color:red; margin-left:10px; font-weight:bold;">🚫 連結無法訪問 (${blockReason})</span>` : ''}
+                                    ${isBlocked ? `<span style="color:red; margin-left:10px; font-weight:bold;">🚫 ${blockReason}</span>` : ''}
                                 </div>
-                                <div>Similarity: ${(prod.similarity * 100).toFixed(2)}%</div>
                             </div>
+                            <hr style="border: 0.5px solid #eee; margin: 15px 0;">
                         `;
                     });
                 }
@@ -219,21 +284,19 @@ async def run_agent(progress_id: str, user_input: dict):
 @app.post("/recommend")
 async def recommend(
     device_type: str = Form(""),
-    country: str = Form(""),
     brands: str = Form(""),
     color: str = Form(""),
     version: str = Form(""),
-    price: float = Form(None),
-    others: str = Form("")
+    others: str = Form(""),
+    refresh: bool = Form(False)
 ):
     user_input = {
         "device_type": device_type,
-        "country": country,
         "brands": brands,
         "color": color,
         "version": version,
-        "price": price,
-        "others": others
+        "others": others,
+        "refresh": refresh,
     }
     progress_id = str(uuid.uuid4())
     progress_store[progress_id] = {"progress": 0, "message": "Starting..."}

@@ -7,12 +7,16 @@ from urllib.parse import urlparse, urljoin
 import logging
 from ddgs import DDGS
 from tavily import TavilyClient
+import concurrent.futures
 
 logging.basicConfig(level=logging.INFO)
 
 USER_AGENT = os.getenv("USER_AGENT", "MyBot/1.0")
 TARGET_SITES = [s.strip() for s in os.getenv("TARGET_SITES", "").split(",") if s.strip()]
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
+FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape"
+
 
 # Initialize Tavily client if key exists
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY) if TAVILY_API_KEY else None
@@ -41,16 +45,20 @@ def search_web_tavily(query: str, max_results: int = 30) -> list[dict]:
         response = tavily_client.search(
             query=query,
             max_results=max_results,
-            include_raw_content=False,   # We only need title+description+URL
+            include_raw_content=True,   # We only need title+description+URL
             include_domains=TARGET_SITES if TARGET_SITES else None
         )
+
         
+
         results = response.get("results", [])
         print(f"DEBUG: Tavily returned {len(results)} results")
         
         # Convert to your product format
         products = []
         for r in results:
+            if 'github.com' in r.get('url', ''):
+                continue
             products.append({
                 "title": r.get("title", ""),
                 "description": r.get("content", ""),
@@ -59,11 +67,32 @@ def search_web_tavily(query: str, max_results: int = 30) -> list[dict]:
                 "availability": True,
                 "source": "tavily"
             })
+            
         return products
     except Exception as e:
         logging.error(f"Tavily search failed: {e}")
         return []
-
+    
+def fetch_with_firecrawl(url: str, timeout: int = 20) -> str | None:
+    if not FIRECRAWL_API_KEY:
+        return None
+    payload = {
+        "url": url,
+        "render": True,
+        "headers": {
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+    }
+    headers = {"Authorization": f"Bearer {FIRECRAWL_API_KEY}", "Content-Type": "application/json"}
+    try:
+        resp = requests.post(FIRECRAWL_API_URL, json=payload, headers=headers, timeout=timeout)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("data", {}).get("markdown") or data.get("data", {}).get("content")
+    except Exception:
+        pass
+    return None
 # ==================== DUCKDUCKGO SEARCH (Fallback) ====================
 def search_web_duckduckgo(query: str, max_results: int = 30) -> list[str]:
     """Use DuckDuckGo to get raw URLs (fallback)."""
@@ -164,29 +193,122 @@ def scrape_product_page(url: str) -> dict | None:
         "availability": True,
         "source": "ddg"
     }
+# ==================== 检测页面是否包含不可用关键词 ====================
 
+def check_unavailable(url: str) -> bool:
+    unavailable_keywords = [
+        "cannot be shipped", "out of stock"
+        "sold out", "currently unavailable"
+    ]
+    print(f"🔍 开始检测: {url[:60]}...")  # 显示正在检测的 URL
+
+    if FIRECRAWL_API_KEY:
+        try:
+            markdown = fetch_with_firecrawl(url, timeout=6)
+            if markdown:
+                content = markdown.lower()
+                for kw in unavailable_keywords:
+                    if kw in content:
+                        print(f"   ✅ Firecrawl 找到关键词: {kw}")
+                        return True
+                print(f"   ❌ Firecrawl 未找到关键词")
+                return False
+        except Exception as e:
+            print(f"   ⚠️ Firecrawl 异常: {e}")
+
+    # fallback 到 requests
+    headers = {"User-Agent": USER_AGENT}
+    try:
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200:
+            print(f"   ❌ requests 状态码 {resp.status_code}")
+            return False
+        content = resp.text.lower()
+        for kw in unavailable_keywords:
+            if kw in content:
+                print(f"   ✅ requests 找到关键词: {kw}")
+                return True
+        print(f"   ❌ requests 未找到关键词")
+        return False
+    except Exception as e:
+        print(f"   ⚠️ requests 异常: {e}")
+        return False
+    
 # ==================== MAIN FETCH FUNCTION (Hybrid) ====================
-def fetch_products(query: str, max_candidates: int = 30, progress_callback=None) -> list[dict]:
-    """Try Tavily first, then fallback to DuckDuckGo scraping."""
-    products = []
+def fetch_products(query: str, max_candidates: int = 30, progress_callback=None, keywords: list = None) -> list[dict]:
+    """Try Tavily first (multiple variants), then fallback to DuckDuckGo scraping."""
 
-    # --- Try Tavily (Primary) ---
-    if tavily_client:
+    # --- 1. 生成查询变体（最多3个） ---
+    queries = [query]
+    if keywords:
+        for kw in keywords[:2]:  # 取前2个关键词
+            if kw not in query:  # 避免重复
+                queries.append(f"{query} {kw}")
+
+    unique_queries = list(dict.fromkeys(queries))[:3]
+    print(f"🔍 将执行 {len(unique_queries)} 次搜索: {unique_queries}")
+
+    # --- 2. 执行多次搜索 ---
+    all_products = []
+    for idx, q in enumerate(unique_queries):
         if progress_callback:
-            progress_callback(40, "Searching Tavily...")
-        tavily_results = search_web_tavily(query, max_results=max_candidates)
-        if tavily_results:
-            products = [p for p in tavily_results if p.get("title")]
-            if products:
-                print(f"✅ Tavily returned {len(products)} products (skipping scraping!)")
-                if progress_callback:
-                    progress_callback(80, f"Tavily found {len(products)} products")
-                return products[:max_candidates]
+            progress_callback(40 + int(20 * idx / len(unique_queries)), f"Searching Tavily with '{q[:30]}...'")
+        results = search_web_tavily(q, max_results=30)
+        if results:
+            all_products.extend(results)
+            print(f"✅ 搜索 '{q}' 获得 {len(results)} 个结果")
+        # 礼貌延迟（第1次不延迟，后续延迟1秒递增）
+        if idx < len(unique_queries) - 1:
+            time.sleep(1 + idx)  # 第1次后等1秒，第2次后等2秒
 
-    # --- Fallback: DuckDuckGo + Scraping ---
+    # --- 3. 去重（按URL） ---
+    seen_urls = set()
+    unique_products = []
+    for p in all_products:
+        url = p.get("url")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_products.append(p)
+
+    print(f"✅ 合并去重后共有 {len(unique_products)} 个唯一商品")
+
+    # --- 4. 并发检测不可用（去重后） ---
+        # --- 4. 并发检测不可用（去重后） ---
+    CHECK_LIMIT = len(unique_products)
+    if unique_products:
+        import concurrent.futures
+        print(f"🔍 开始并发检测 {min(CHECK_LIMIT, len(unique_products))} 个商品...")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            # 提交所有检测任务
+            future_to_product = {
+                executor.submit(check_unavailable, p['url']): p 
+                for p in unique_products[:CHECK_LIMIT] 
+                if p.get('url')
+            }
+            print(f"   已提交 {len(future_to_product)} 个检测任务")
+
+            for future in concurrent.futures.as_completed(future_to_product):
+                p = future_to_product[future]
+                try:
+                    is_unavailable = future.result()
+                    p['unavailable'] = is_unavailable
+                    if is_unavailable:
+                        print(f"   ⛔ 检测到不可用: {p.get('title', '')[:30]}...")
+                except Exception as e:
+                    print(f"   ⚠️ 检测任务异常: {e}")
+                    p['unavailable'] = False
+
+        # --- 5. 返回结果 ---
+        if unique_products:
+            if progress_callback:
+                progress_callback(80, f"Tavily found {len(unique_products)} products")
+            return unique_products[:max_candidates]
+    
+    # --- 5. Fallback: DuckDuckGo + Scraping ---
     if progress_callback:
         progress_callback(45, "Falling back to DuckDuckGo + scraping...")
-    print("🔄 Tavily returned 0 results or not configured – falling back to DuckDuckGo + scraping.")
+    print("🔄 Tavily returned 0 results or not configured - falling back to DuckDuckGo + scraping.")
     urls = search_web_duckduckgo(query, max_results=max_candidates)
     scraped = []
     total = len(urls)
@@ -199,7 +321,7 @@ def fetch_products(query: str, max_candidates: int = 30, progress_callback=None)
         time.sleep(1)
         if len(scraped) >= max_candidates:
             break
-    
+
     print(f"🔍 DuckDuckGo fallback scraped {len(scraped)} products")
     if progress_callback:
         progress_callback(100, "Done.")
