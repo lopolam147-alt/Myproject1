@@ -1,3 +1,8 @@
+"""
+PostgreSQL database caching for search results.
+Uses SQLAlchemy ORM with a 7-day TTL.
+"""
+
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -21,7 +26,7 @@ Base = declarative_base()
 class SearchCache(Base):
     __tablename__ = "search_cache"
     id = Column(Integer, primary_key=True, index=True)
-    query_hash = Column(String(64), index=True)  # simple hash of query
+    query_hash = Column(String(64), index=True)  # SHA256 hash of query_text
     query_text = Column(Text)
     results = Column(JSON)  # list of product dicts
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -29,7 +34,9 @@ class SearchCache(Base):
 Base.metadata.create_all(bind=engine)
 
 def get_cached_results(query_text: str, max_age_days: int = 7) -> list | None:
-    """Return cached results if they exist and are younger than max_age_days."""
+    """
+    Retrieve cached results for a given query if they exist and are not older than max_age_days.
+    """
     import hashlib
     query_hash = hashlib.sha256(query_text.encode()).hexdigest()
     cutoff = datetime.utcnow() - timedelta(days=max_age_days)
@@ -43,12 +50,14 @@ def get_cached_results(query_text: str, max_age_days: int = 7) -> list | None:
     return None
 
 def cache_results(query_text: str, results: list):
-    """Store results in the database, deleting old entries first."""
+    """
+    Store results in the database, deleting any old entry for the same query first.
+    Converts numpy types to Python native types to ensure JSON serialization.
+    """
     import hashlib
     import json
     import numpy as np
 
-    # ----- FORCE CONVERSION: make sure NO numpy types slip through -----
     def convert_to_serializable(obj):
         if isinstance(obj, (np.float32, np.float64)):
             return float(obj)
@@ -58,10 +67,8 @@ def cache_results(query_text: str, results: list):
             return obj.tolist()
         raise TypeError(f"Type {type(obj)} not serializable")
 
-    # Recursively clean the results list
     cleaned_results = json.loads(json.dumps(results, default=convert_to_serializable))
 
-    # ----- Now save to DB -----
     query_hash = hashlib.sha256(query_text.encode()).hexdigest()
     with SessionLocal() as session:
         session.query(SearchCache).filter(SearchCache.query_hash == query_hash).delete()
@@ -72,10 +79,10 @@ def cache_results(query_text: str, results: list):
         )
         session.add(cache_entry)
         session.commit()
-        print(f"✅ DB SAVE SUCCESS: {len(cleaned_results)} products cached for '{query_text}'")  # <-- Debug print
+        print(f"✅ DB SAVE SUCCESS: {len(cleaned_results)} products cached for '{query_text}'")
 
 def delete_old_entries(days: int = 7):
-    """Delete records older than 'days'."""
+    """Delete cache entries older than 'days'."""
     cutoff = datetime.utcnow() - timedelta(days=days)
     with SessionLocal() as session:
         session.query(SearchCache).filter(SearchCache.created_at < cutoff).delete()
